@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from contextlib import contextmanager
-from typing import Dict, Generator, List
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, Dict, List
 
 from fastapi import FastAPI
 
@@ -57,9 +57,9 @@ def record(agent: str, latency: float, success: bool) -> None:
     metrics.record(agent, latency, success)
 
 
-@contextmanager
-def track(agent: str) -> Generator[None, None, None]:
-    """Context manager: automatically records latency and success/failure.
+@asynccontextmanager
+async def track(agent: str) -> AsyncGenerator[None, None]:
+    """Async context manager: automatically records latency and success/failure.
 
     Usage:
         async with track("law-agent"):
