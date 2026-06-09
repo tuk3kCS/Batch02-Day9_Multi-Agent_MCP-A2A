@@ -10,6 +10,12 @@ import httpx
 
 REGISTRY_URL = os.getenv("REGISTRY_URL", "http://localhost:10000")
 
+# OPTIMISATION: in-process cache for discover() results.
+# Registry entries are stable for the lifetime of a service run —
+# agents register once on startup and don't move. Caching eliminates
+# one HTTP round-trip (~5–20ms) per delegation call.
+_discover_cache: dict[str, str] = {}
+
 
 async def discover(task: str) -> str:
     """Return the endpoint URL of the agent that handles the given task.
@@ -23,10 +29,16 @@ async def discover(task: str) -> str:
     Raises:
         httpx.HTTPStatusError: If no agent is found or the registry is unreachable.
     """
+    if task in _discover_cache:
+        return _discover_cache[task]
+
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(f"{REGISTRY_URL}/discover/{task}")
         resp.raise_for_status()
-        return resp.json()["endpoint"]
+        endpoint = resp.json()["endpoint"]
+
+    _discover_cache[task] = endpoint
+    return endpoint
 
 
 async def register(agent_info: dict) -> None:

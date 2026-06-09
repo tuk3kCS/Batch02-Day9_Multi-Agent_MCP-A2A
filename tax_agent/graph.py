@@ -30,7 +30,7 @@ When answering, be precise about:
 4. The distinction between the company's liability and individual liability
    for executives who directed the evasion
 
-Always note that your response is for educational purposes and the user
+Trả lời ngắn gọn trong 2 câu. Always note that your response is for educational purposes and the user
 should consult a licensed attorney for specific legal advice.
 """
 

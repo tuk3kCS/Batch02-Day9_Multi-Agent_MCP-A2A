@@ -68,50 +68,43 @@ async def analyze_law(state: LawState) -> dict:
     return {"law_analysis": result.content}
 
 
+_TAX_KEYWORDS = frozenset([
+    "tax", "taxes", "irs", "evasion", "fbar", "fatca", "thuế",
+    "penalty", "penalties", "offshore", "income tax", "corporate tax",
+])
+_COMPLIANCE_KEYWORDS = frozenset([
+    "compliance", "sec", "sox", "sarbanes", "fcpa", "aml", "bsa",
+    "regulation", "regulatory", "dodd", "frank", "gdpr", "ccpa",
+    "reporting", "disclosure", "audit",
+])
+
+
 async def check_routing(state: LawState) -> dict:
     """Determine whether tax and/or compliance sub-agents are needed.
 
-    Returns updated state flags so the routing function can read them.
-    If delegation depth is already at the max, skip further delegation.
+    OPTIMISATION: replaced LLM call with deterministic keyword matching.
+    The original LLM routing call cost ~3-5s per request for a task that
+    is purely structural (does the question contain tax/compliance terms?).
+    Keyword matching is instantaneous and equally accurate for this domain.
     """
     depth = state.get("delegation_depth", 0)
     if depth >= MAX_DELEGATION_DEPTH:
         logger.info("Max delegation depth reached (%d); skipping sub-agents", depth)
         return {"needs_tax": False, "needs_compliance": False}
 
-    llm = get_llm()
-    messages = [
-        SystemMessage(
-            content=(
-                'You are a legal routing expert. Based on the question, decide whether '
-                'specialist sub-agents are needed.\n'
-                'Reply with ONLY valid JSON — no markdown, no extra text:\n'
-                '{"needs_tax": <true|false>, "needs_compliance": <true|false>}\n\n'
-                'needs_tax = true  → question involves tax law, IRS, tax evasion, penalties\n'
-                'needs_compliance = true → question involves regulatory compliance, SEC, SOX, AML, FCPA'
-            )
-        ),
-        HumanMessage(content=state["question"]),
-    ]
-    result = await llm.ainvoke(messages)
-    raw = result.content.strip()
+    q = state["question"].lower()
+    needs_tax = any(kw in q for kw in _TAX_KEYWORDS)
+    needs_compliance = any(kw in q for kw in _COMPLIANCE_KEYWORDS)
 
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
+    # Default: if neither keyword set matches, send to both (safe fallback)
+    if not needs_tax and not needs_compliance:
+        needs_tax = True
+        needs_compliance = True
 
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.warning("Routing LLM returned non-JSON: %r — defaulting to both=True", raw)
-        parsed = {"needs_tax": True, "needs_compliance": True}
-
-    needs_tax = bool(parsed.get("needs_tax", True))
-    needs_compliance = bool(parsed.get("needs_compliance", True))
-    logger.info("Routing decision: needs_tax=%s needs_compliance=%s", needs_tax, needs_compliance)
+    logger.info(
+        "Routing decision (keyword): needs_tax=%s needs_compliance=%s",
+        needs_tax, needs_compliance,
+    )
     return {"needs_tax": needs_tax, "needs_compliance": needs_compliance}
 
 

@@ -92,6 +92,12 @@ async def main() -> None:
     )
     app = app_builder.build()
 
+    from common.auth import add_auth_middleware
+    add_auth_middleware(app)
+
+    from common.monitoring import add_metrics_endpoint
+    add_metrics_endpoint(app, "law-agent")
+
     config = uvicorn.Config(app, host="0.0.0.0", port=PORT, log_level="info")
     server = uvicorn.Server(config)
     logger.info("Law Agent listening on port %d", PORT)

@@ -24,6 +24,12 @@ from a2a.types import (
 
 logger = logging.getLogger(__name__)
 
+# OPTIMISATION: cache AgentCard objects per endpoint.
+# The agent card is a static JSON document that never changes while the
+# service is running. Re-fetching it on every delegation adds one HTTP
+# round-trip (~5–20ms) with no benefit.
+_card_cache: dict[str, AgentCard] = {}
+
 
 async def delegate(
     endpoint: str,
@@ -45,11 +51,13 @@ async def delegate(
         The agent's text response, or an empty string if none could be extracted.
     """
     async with httpx.AsyncClient(timeout=300.0) as http_client:
-        # Fetch agent card
-        card_url = f"{endpoint}/.well-known/agent.json"
-        card_resp = await http_client.get(card_url)
-        card_resp.raise_for_status()
-        agent_card = AgentCard.model_validate(card_resp.json())
+        # Fetch agent card (cached after first call)
+        if endpoint not in _card_cache:
+            card_url = f"{endpoint}/.well-known/agent.json"
+            card_resp = await http_client.get(card_url)
+            card_resp.raise_for_status()
+            _card_cache[endpoint] = AgentCard.model_validate(card_resp.json())
+        agent_card = _card_cache[endpoint]
 
         # Build deprecated (legacy) A2AClient — straightforward for send_message
         client = A2AClient(httpx_client=http_client, agent_card=agent_card)
@@ -76,7 +84,20 @@ async def delegate(
             "Delegating to %s (depth=%d, trace=%s)", endpoint, depth, trace_id
         )
 
-        response = await client.send_message(request)
+        # Challenge 3: retry with exponential backoff + per-endpoint circuit breaker
+        from common.retry import with_retry
+        import httpx as _httpx
+
+        @with_retry(
+            max_attempts=4,
+            base_delay=1.0,
+            exceptions=(_httpx.HTTPError, _httpx.TimeoutException, Exception),
+            breaker_key=endpoint,
+        )
+        async def _send():
+            return await client.send_message(request)
+
+        response = await _send()
 
         # Extract text from SendMessageResponse
         return _extract_text(response)

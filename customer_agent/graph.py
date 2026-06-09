@@ -87,10 +87,13 @@ def build_graph(trace_id: str, context_id: str, depth: int) -> Any:
             logger.exception("delegate_to_legal_agent failed: %s", exc)
             return f"Could not reach the Law Agent: {exc}"
 
+    # Challenge 1: conversation memory — history is keyed by thread_id=context_id
+    from common.memory import get_checkpointer
     llm = get_llm()
     graph = create_react_agent(
         model=llm,
         tools=[delegate_to_legal_agent],
         prompt=CUSTOMER_SYSTEM_PROMPT,
+        checkpointer=get_checkpointer(),
     )
     return graph

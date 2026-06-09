@@ -92,6 +92,14 @@ async def main() -> None:
     )
     app = app_builder.build()
 
+    # Challenge 2: API key auth (enabled when A2A_API_KEY is set in .env)
+    from common.auth import add_auth_middleware
+    add_auth_middleware(app)
+
+    # Challenge 4: /metrics endpoint
+    from common.monitoring import add_metrics_endpoint
+    add_metrics_endpoint(app, "customer-agent")
+
     config = uvicorn.Config(app, host="0.0.0.0", port=PORT, log_level="info")
     server = uvicorn.Server(config)
     logger.info("Customer Agent listening on port %d", PORT)

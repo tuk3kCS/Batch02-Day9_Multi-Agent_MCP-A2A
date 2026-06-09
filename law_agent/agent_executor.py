@@ -14,7 +14,6 @@ from law_agent.graph import create_graph
 
 logger = logging.getLogger(__name__)
 
-# Build graph once at module load
 _graph = create_graph()
 
 
@@ -38,43 +37,45 @@ class LawAgentExecutor(AgentExecutor):
         await updater.submit()
         await updater.start_work()
 
-        try:
-            result = await _graph.ainvoke(
-                {
-                    "question": question,
-                    "context_id": context_id,
-                    "trace_id": trace_id,
-                    "delegation_depth": depth,
-                    "law_analysis": "",
-                    "needs_tax": False,
-                    "needs_compliance": False,
-                    "tax_result": "",
-                    "compliance_result": "",
-                    "final_answer": "",
-                },
-                config={"configurable": {"thread_id": context_id}},
-            )
-
-            answer = result.get("final_answer", "")
-            if not answer:
-                # Fallback: use law_analysis if aggregation didn't produce output
-                answer = result.get("law_analysis", "")
-            if not answer:
-                answer = "I was unable to generate a legal analysis at this time."
-
-            await updater.add_artifact(
-                parts=[Part(root=TextPart(text=answer))],
-                name="legal_analysis",
-            )
-            await updater.complete()
-
-        except Exception as exc:
-            logger.exception("LawAgent execution error: %s", exc)
-            await updater.failed(
-                updater.new_agent_message(
-                    parts=[Part(root=TextPart(text=f"Legal analysis failed: {exc}"))]
+        # Challenge 4: track latency and success/failure
+        from common.monitoring import track
+        async with track("law-agent"):
+            try:
+                result = await _graph.ainvoke(
+                    {
+                        "question": question,
+                        "context_id": context_id,
+                        "trace_id": trace_id,
+                        "delegation_depth": depth,
+                        "law_analysis": "",
+                        "needs_tax": False,
+                        "needs_compliance": False,
+                        "tax_result": "",
+                        "compliance_result": "",
+                        "final_answer": "",
+                    },
+                    config={"configurable": {"thread_id": context_id}},
                 )
-            )
+
+                answer = result.get("final_answer", "")
+                if not answer:
+                    answer = result.get("law_analysis", "")
+                if not answer:
+                    answer = "I was unable to generate a legal analysis at this time."
+
+                await updater.add_artifact(
+                    parts=[Part(root=TextPart(text=answer))],
+                    name="legal_analysis",
+                )
+                await updater.complete()
+
+            except Exception as exc:
+                logger.exception("LawAgent execution error: %s", exc)
+                await updater.failed(
+                    updater.new_agent_message(
+                        parts=[Part(root=TextPart(text=f"Legal analysis failed: {exc}"))]
+                    )
+                )
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id or str(uuid4())
